@@ -1,7 +1,7 @@
 -module(newrelic).
 
--export([push/3, push_metric_data/3, push_error_data/3,
-         connect/2, get_redirect_host/0]).
+-export([push/3, push/4, push_metric_data/3, push_error_data/3,
+         connect/2, connect/3, get_redirect_host/0]).
 
 % Exported for testing
 -export([sample_data/0, sample_error_data/0]).
@@ -18,8 +18,11 @@
 %% @doc: Connects to New Relic and sends the hopefully correctly
 %% formatted data and registers it under the given hostname.
 push(Hostname, Data, Errors) ->
+    push(app_name(), Hostname, Data, Errors).
+
+push(Appname, Hostname, Data, Errors) ->
     Collector = get_redirect_host(),
-    RunId = connect(Collector, Hostname),
+    RunId = connect(Collector, Appname, Hostname),
     case push_metric_data(Collector, RunId, Data) of
         ok ->
             push_error_data(Collector, RunId, Errors);
@@ -47,13 +50,16 @@ get_redirect_host() ->
 
 
 connect(Collector, Hostname) ->
+    connect(Collector, app_name(), Hostname).
+
+connect(Collector, Appname, Hostname) ->
     Url = url(Collector, [{method, connect}]),
 
     Data = [{[
               {agent_version, <<"1.5.0.103">>},
-              {app_name, [app_name()]},
+              {app_name, [Appname]},
               {host, ?l2b(Hostname)},
-              {identifier, app_name()},
+              {identifier, Appname},
               {pid, ?l2i(os:getpid())},
               {environment, []},
               {language, <<"python">>},
