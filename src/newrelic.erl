@@ -35,16 +35,9 @@ push(Hostname, Data, Errors) ->
 
 get_redirect_host() ->
     Url = url([{method, get_redirect_host}]),
-    case request(Url) of
-        {ok, {{200, "OK"}, _, Body}} ->
-            {Struct} = jiffy:decode(Body),
-            binary_to_list(proplists:get_value(<<"return_value">>, Struct));
-        {ok, {{503, _}, _, _}} ->
-            throw(newrelic_down);
-        {error, timeout} ->
-            throw(newrelic_down)
-    end.
-
+    Response = request(Url),
+    {Struct} = jiffy:decode(Response),
+    binary_to_list(proplists:get_value(<<"return_value">>, Struct)).
 
 connect(Collector, Hostname) ->
     Url = url(Collector, [{method, connect}]),
@@ -60,17 +53,10 @@ connect(Collector, Hostname) ->
               {settings, {[]}}
              ]}],
 
-    case request(Url, jiffy:encode(Data)) of
-        {ok, {{200, "OK"}, _, Body}} ->
-            {Struct} = jiffy:decode(Body),
-            {Return} = proplists:get_value(<<"return_value">>, Struct),
-            proplists:get_value(<<"agent_run_id">>, Return);
-        {ok, {{503, _}, _, _}} ->
-            throw(newrelic_down);
-        {error, timeout} ->
-            throw(newrelic_down)
-    end.
-
+    Response = request(Url, jiffy:encode(Data)),
+    {Struct} = jiffy:decode(Response),
+    {Return} = proplists:get_value(<<"return_value">>, Struct),
+    proplists:get_value(<<"agent_run_id">>, Return).
 
 push_metric_data(Collector, RunId, MetricData) ->
     Url = url(Collector, [{method, metric_data},
@@ -94,21 +80,14 @@ push_error_data(Collector, RunId, ErrorData) ->
 
 
 push_data(Url, Data) ->
-    case request(Url, jiffy:encode(Data)) of
-        {ok, {{200, "OK"}, _, Response}} ->
-            {Struct} = jiffy:decode(Response),
-            case proplists:get_value(<<"exception">>, Struct) of
-                undefined ->
-                    ok;
-                Exception ->
-                    {error, Exception}
-            end;
-        {ok, {{503, _}, _, _}} ->
-            throw(newrelic_down);
-        {error, timeout} ->
-            throw(newrelic_down)
+    Response = request(Url, jiffy:encode(Data)),
+    {Struct} = jiffy:decode(Response),
+    case proplists:get_value(<<"exception">>, Struct) of
+        undefined ->
+            ok;
+        Exception ->
+            {error, Exception}
     end.
-
 
 %%
 %% HELPERS
@@ -135,8 +114,17 @@ request(Url) ->
     request(Url, <<"[]">>).
 
 request(Url, Body) ->
-    lhttpc:request(Url, post, [{"Content-Encoding", "identity"}], Body, 5000).
-
+    case lhttpc:request(Url, post, [{"Content-Encoding", "identity"}],
+                        Body, 5000) of
+        {ok, {{200, "OK"}, _, Response}} ->
+            Response;
+        {ok, {{500, _}, _, _}} ->
+            throw(newrelic_down);
+        {ok, {{503, _}, _, _}} ->
+            throw(newrelic_down);
+        {error, timeout} ->
+            throw(newrelic_down)
+    end.
 
 url(Args) ->
     url("collector.newrelic.com", Args).
